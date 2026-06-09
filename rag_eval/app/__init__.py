@@ -1,4 +1,6 @@
-"""app — Streamlit demo: ask a question, see the answer, cited sources, scores (Phase 5).
+"""app — Streamlit demo (Phase 5): ask a question, see the answer, cited sources, scores.
 
-Not implemented yet. Built in Phase 5 on top of the generation + retrieval modules.
+main.py reuses generation.answer_question, so the demo runs whatever config is set
+(strategy, reranker, top_k, agentic) and exposes those toggles in the sidebar.
+Run: streamlit run rag_eval/app/main.py
 """
