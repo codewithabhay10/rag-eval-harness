@@ -50,6 +50,41 @@ def embed_sparse(texts: list[str]) -> list[dict]:
     return out["lexical_weights"]
 
 
+def embed_both(texts: list[str]) -> tuple[np.ndarray, list[dict]]:
+    """Dense vectors + sparse lexical weights in ONE pass (used at indexing time).
+
+    Computing both together is the whole reason for BGE-M3: one model call yields the
+    dense vector for semantic search and the sparse weights for lexical (BM25-like)
+    search, so the hybrid index needs no second model.
+    """
+    out = _model().encode(
+        texts,
+        batch_size=settings.embedding_batch_size,
+        return_dense=True,
+        return_sparse=True,
+        return_colbert_vecs=False,
+    )
+    return np.asarray(out["dense_vecs"], dtype=np.float32), out["lexical_weights"]
+
+
 def embed_query(text: str) -> np.ndarray:
     """Convenience: dense embedding for a single query string."""
     return embed_dense([text])[0]
+
+
+def embed_query_sparse(text: str) -> dict:
+    """Convenience: sparse lexical weights for a single query string."""
+    return embed_sparse([text])[0]
+
+
+def sparse_to_indices_values(weights: dict) -> tuple[list[int], list[float]]:
+    """Convert BGE-M3 lexical weights {token_id: weight} to Qdrant sparse format."""
+    indices: list[int] = []
+    values: list[float] = []
+    for token_id, weight in weights.items():
+        w = float(weight)
+        if w <= 0:
+            continue
+        indices.append(int(token_id))
+        values.append(w)
+    return indices, values

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from config import settings
 from rag_eval.ingestion.embed import embed_query
-from rag_eval.ingestion.index import get_client
+from rag_eval.ingestion.index import DENSE, get_client
 
 
 @dataclass
@@ -23,17 +23,10 @@ class Retrieved:
     score: float
 
 
-def dense_search(query: str, k: int) -> list[Retrieved]:
-    client = get_client()
-    vector = embed_query(query).tolist()
-    response = client.query_points(
-        collection_name=settings.collection_name,
-        query=vector,
-        limit=k,
-        with_payload=True,
-    )
+def to_retrieved(points) -> list[Retrieved]:
+    """Map Qdrant scored points to Retrieved (shared by dense + hybrid search)."""
     results: list[Retrieved] = []
-    for point in response.points:
+    for point in points:
         payload = point.payload or {}
         results.append(
             Retrieved(
@@ -45,3 +38,16 @@ def dense_search(query: str, k: int) -> list[Retrieved]:
             )
         )
     return results
+
+
+def dense_search(query: str, k: int) -> list[Retrieved]:
+    client = get_client()
+    vector = embed_query(query).tolist()
+    response = client.query_points(
+        collection_name=settings.collection_name,
+        query=vector,
+        using=DENSE,
+        limit=k,
+        with_payload=True,
+    )
+    return to_retrieved(response.points)

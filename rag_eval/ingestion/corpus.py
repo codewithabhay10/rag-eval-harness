@@ -86,3 +86,26 @@ def save_corpus_meta(papers: list[PaperMeta]) -> None:
     settings.corpus_meta_path.write_text(
         json.dumps([p.to_json() for p in papers], indent=2), encoding="utf-8"
     )
+
+
+def load_corpus_meta() -> list[PaperMeta]:
+    """Reload the already-downloaded corpus from disk (no arXiv call).
+
+    The ablation rebuilds indexes at different chunk sizes; it reads PDFs from here
+    instead of re-querying the API every time.
+    """
+    if not settings.corpus_meta_path.exists():
+        raise FileNotFoundError(
+            f"{settings.corpus_meta_path} not found. Run ingestion first: "
+            f"python -m rag_eval.ingestion.run"
+        )
+    raw = json.loads(settings.corpus_meta_path.read_text(encoding="utf-8"))
+    return [
+        PaperMeta(
+            paper_id=d["paper_id"],
+            title=d["title"],
+            authors=d["authors"],
+            pdf_path=Path(d["pdf_path"]),
+        )
+        for d in raw
+    ]
