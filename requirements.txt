@@ -1,0 +1,39 @@
+# RAG eval harness — pinned for reproducibility (Python 3.11).
+# Heavy ML deps (torch/transformers/FlagEmbedding) install CPU builds by default
+# on Windows. First ingestion run downloads the BGE-M3 model (~2GB) into the HF cache.
+
+# --- config & secrets ---
+pydantic==2.10.4
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
+
+# --- ingestion: corpus + parsing ---
+arxiv==2.1.3
+pypdf==5.1.0
+
+# --- embeddings / models (BGE-M3 dense+sparse, BGE reranker) ---
+FlagEmbedding==1.3.4
+torch==2.5.1
+transformers==4.47.1
+sentence-transformers==3.3.1
+
+# --- vector db (Qdrant local mode, no server) ---
+qdrant-client==1.12.2
+
+# --- orchestration + LLM providers (local-first, API opt-in) ---
+langchain==0.3.14
+langchain-core==0.3.29
+langchain-community==0.3.14
+langchain-text-splitters==0.3.4
+langgraph==0.2.62
+langchain-ollama==0.2.2
+langchain-groq==0.2.3
+langchain-google-genai==2.0.8
+
+# --- evaluation ---
+ragas==0.2.10
+datasets==3.2.0
+pandas==2.2.3
+
+# --- demo ---
+streamlit==1.41.1
