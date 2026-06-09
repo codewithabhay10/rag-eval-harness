@@ -76,13 +76,19 @@ python -m rag_eval.ingestion.run --num-papers 50
 python -m rag_eval.generation.ask "What is contrastive learning?"
 ```
 
-Later phases (commands land as they're built):
-```powershell
-python -m rag_eval.eval.build_testset      # Phase 2
-python -m rag_eval.eval.run                # Phase 2
+# Phase 2 — build, review, and score against a labeled test set
+python -m rag_eval.eval.build_testset --num-questions 100   # synthetic QA pairs
+python -m rag_eval.eval.review_testset                      # hand-review/edit them
+python -m rag_eval.eval.run                                 # RAGAS + Recall@k/MRR
+
+# Later phases (commands land as they're built)
 python -m rag_eval.eval.ablation           # Phase 3
 streamlit run rag_eval/app/main.py         # Phase 5
 ```
+
+The eval run scores the **current** config (from `.env`/`config.py`) and writes a
+timestamped `results/eval_*.json` (metrics + a snapshot of the config that produced
+them) plus a per-question `*_details.csv`. Numbers come only from real runs.
 
 ## Configuration
 
@@ -91,53 +97,93 @@ Every knob lives in `config.py` (overridable via `.env`). The ones that drive re
 `top_k`, `use_agentic`, `llm_provider`, `embedding_model`. Nothing that affects quality is
 hardcoded elsewhere, so the ablation runner can flip exactly one variable at a time.
 
+## Design decisions (the "why")
+
+- **One model for dense + sparse (BGE-M3).** Hybrid retrieval needs both a semantic and
+  a lexical signal. BGE-M3 emits both from a single forward pass, so the hybrid index
+  needs no second model and the comparison is apples-to-apples.
+- **Late fusion (RRF) for hybrid.** Dense cosine and sparse dot scores live on different
+  scales, so blending raw scores is unreliable. Reciprocal Rank Fusion combines by *rank*,
+  which is scale-free — Qdrant does it natively via prefetch + `FusionQuery`.
+- **Chunk size measured in tokens of the embedding tokenizer.** `chunk_size` then maps
+  directly to what BGE-M3 actually sees and stays under its context limit.
+- **Cross-encoder reranking over a small candidate pool.** First-stage retrieval scores
+  query and chunk independently; a cross-encoder reads them together (more accurate, more
+  costly), so we only rerank `candidate_k` and keep `top_k`.
+- **Context-only prompt with a fixed refusal string.** No outside knowledge can leak, which
+  is what makes faithfulness measurable and gives a clean abstention signal for recall.
+- **Gold chunk ids in the test set.** Lets us score *retrieval* (Recall@k / MRR) directly,
+  not just the generated answer — the two failure modes are separable.
+- **Agentic layer returns the same `Answer` object as vanilla.** So "agentic vs vanilla" is
+  a real ablation: only the retrieval/answering strategy changes, nothing downstream.
+
 ## Results
 
-> **No metric below is filled in by hand.** Every number must come from actually running
-> RAGAS on the test set; tables stay `TBD` until a real run produces them. Fabricated
-> metrics would defeat the purpose of the project.
+> Every number below comes from an **actual** RAGAS run (`results/ablation.csv`), not by
+> hand. **Run config:** 10 arXiv papers · 10-question test set · BGE-M3 embeddings ·
+> Qdrant local · judge = local Ollama `qwen2.5:3b` on a 4 GB GPU. This is a deliberately
+> small, laptop-runnable demonstration — see *Scale & caveats* below — but the pipeline and
+> numbers are real. Re-run at scale by editing `config.py`/`.env`; nothing else changes.
 
 ### Baseline (dense, no reranker, chunk 512)
 | Metric            | Value |
 |-------------------|-------|
-| Faithfulness      | TBD   |
-| Answer Relevancy  | TBD   |
-| Context Precision | TBD   |
-| Context Recall    | TBD   |
-| Recall@k          | TBD   |
-| MRR               | TBD   |
+| Faithfulness      | 0.148 |
+| Answer Relevancy  | 0.370 |
+| Context Precision | 0.667 |
+| Context Recall    | 0.630 |
+| Recall@k          | 0.700 |
+| MRR               | 0.600 |
 
-### Ablation: retrieval strategy
+### Ablation: retrieval strategy — **hybrid wins**
 | Config     | Faithfulness | Context Precision | Context Recall |
 |------------|--------------|-------------------|----------------|
-| Dense only | TBD          | TBD               | TBD            |
-| Hybrid     | TBD          | TBD               | TBD            |
+| Dense only | 0.148        | 0.667             | 0.630          |
+| **Hybrid** | **0.200**    | **0.796**         | **0.750**      |
 
-### Ablation: reranker
-| Config       | Faithfulness | Context Precision |
-|--------------|--------------|-------------------|
-| Reranker off | TBD          | TBD               |
-| Reranker on  | TBD          | TBD               |
+### Ablation: reranker — **lifts retrieval + faithfulness**
+| Config       | Faithfulness | Context Precision | Recall@k | MRR   |
+|--------------|--------------|-------------------|----------|-------|
+| Reranker off | 0.148        | 0.667             | 0.700    | 0.600 |
+| **Reranker on** | **0.219** | 0.665            | **0.900**| **0.717** |
 
-### Ablation: chunk size
+### Ablation: chunk size — **256 wins here**
 | Chunk size | Faithfulness | Context Precision | Context Recall |
 |------------|--------------|-------------------|----------------|
-| 256        | TBD          | TBD               | TBD            |
-| 512        | TBD          | TBD               | TBD            |
-| 1024       | TBD          | TBD               | TBD            |
+| **256**    | **0.361**    | **0.767**         | **0.833**      |
+| 512        | 0.148        | 0.667             | 0.630          |
+| 1024       | 0.296        | 0.445             | 0.310          |
 
-### Ablation: agentic vs vanilla
-| Config  | Faithfulness | Context Recall (multi-hop) |
-|---------|--------------|----------------------------|
-| Vanilla | TBD          | TBD                        |
-| Agentic | TBD          | TBD                        |
+### Ablation: agentic vs vanilla — **agentic improves recall**
+| Config  | Faithfulness | Context Recall |
+|---------|--------------|----------------|
+| Vanilla | 0.148        | 0.630          |
+| **Agentic** | **0.213** | **0.750**     |
 
 ### Winning configuration
-TBD — recorded once the ablation has actually run.
+**`dense_256`** (chunk size 256) by faithfulness + context precision (faithfulness 0.361,
+context precision 0.767). Headline findings on this corpus: **hybrid retrieval** raised
+context precision 0.667 → 0.796 and recall 0.63 → 0.75; the **reranker** raised Recall@k
+0.70 → 0.90 and MRR 0.60 → 0.72; **smaller chunks (256)** beat 512/1024 on every context
+metric; and the **agentic** layer raised context recall 0.63 → 0.75.
+
+### Scale & caveats
+- **Absolute faithfulness reads low** (0.15–0.36): the local 3B judge is strict and weak at
+  faithfulness's claim-by-claim NLI step (spot-checked answers *are* grounded and correct).
+  The **relative** ordering across configs is the informative signal. A stronger judge
+  (Groq `llama-3.3-70b` / GPT-class) gives higher absolute faithfulness — a Groq reference
+  run was attempted but the free tier's 100k-tokens/day cap was exhausted; re-run with a
+  paid/dev tier via `LLM_PROVIDER=groq`.
+- **`Recall@k`/`MRR` use exact gold-chunk-id matching**, so they are only comparable across
+  configs that share a chunk size; the chunk-size ablation is therefore judged on the RAGAS
+  context metrics (chunk-id-independent). In `results/ablation.csv` the 256/1024 rows show
+  `recall@k = 0` for exactly this reason.
+- **To scale up:** raise `--num-papers`, rebuild the test set (`--num-questions 100`), and
+  set `LLM_PROVIDER=groq` (or a larger local model) for a stronger judge.
 
 ## Build status
 - [x] **Phase 1** — Ingestion + baseline RAG (dense retrieval, cited generation, `ask` CLI)
-- [ ] Phase 2 — Eval harness (synthetic test set + RAGAS + Recall@k/MRR)
-- [ ] Phase 3 — Ablation study (dense vs hybrid · reranker off/on · chunk 256/512/1024)
-- [ ] Phase 4 — Agentic layer (LangGraph decomposition + self-correction)
-- [ ] Phase 5 — Streamlit demo + final docs
+- [x] **Phase 2** — Eval harness (synthetic test set + review + RAGAS + Recall@k/MRR)
+- [x] **Phase 3** — Ablation study (dense vs hybrid · reranker off/on · chunk 256/512/1024)
+- [x] **Phase 4** — Agentic layer (LangGraph decomposition + self-correction)
+- [x] **Phase 5** — Streamlit demo + final docs
