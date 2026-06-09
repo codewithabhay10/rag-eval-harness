@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from config import settings
 from rag_eval.generation.llm import get_llm
 from rag_eval.generation.prompts import REFUSAL, SYSTEM_PROMPT, build_user_prompt
 from rag_eval.retrieval.dense import Retrieved
@@ -26,6 +27,12 @@ class Answer:
 
 
 def answer_question(question: str) -> Answer:
+    # Agentic path (Phase 4) is a drop-in: same Answer shape, toggled by config.
+    if settings.use_agentic:
+        from rag_eval.agentic.graph import agentic_answer
+
+        return agentic_answer(question)
+
     sources = retrieve(question)
     if not sources:
         # No context retrieved -> refuse rather than let the LLM hallucinate.
