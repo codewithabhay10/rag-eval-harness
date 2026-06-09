@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 1024
     ollama_model: str = "llama3.1"
     ollama_base_url: str = "http://localhost:11434"
+    # Ollama defaults to a 2048-token context window, which TRUNCATES RAGAS prompts
+    # (question + top_k contexts + JSON format spec) and breaks the judge's output.
+    # Raise it so the judge sees the whole prompt. 8192 fits BGE-M3 chunks comfortably.
+    ollama_num_ctx: int = 8192
     groq_model: str = "llama-3.3-70b-versatile"
     groq_api_key: Optional[str] = None
     gemini_model: str = "gemini-1.5-flash"
@@ -74,7 +78,13 @@ class Settings(BaseSettings):
     # ---- eval harness (Phase 2) ----
     testset_size: int = 100  # target number of synthetic QA pairs
     random_seed: int = 42  # makes test-set sampling reproducible
-    eval_max_workers: int = 4  # RAGAS concurrency (keep low for free-tier rate limits)
+    # RAGAS client concurrency. With a SERIAL local LLM (one GPU), keep this at 1:
+    # higher values just queue multi-call metrics (faithfulness, context precision)
+    # behind each other until they hit the timeout and return NaN. With a hosted API
+    # (Groq/Gemini) that serves requests in parallel, raise it (e.g. 4-8).
+    eval_max_workers: int = 1
+    eval_timeout: int = 600  # per-metric RAGAS timeout (seconds); generous for CPU/local
+    eval_max_retries: int = 2  # RAGAS retries; raise for rate-limited hosted APIs (Groq TPM)
 
     # ---- agentic layer (Phase 4 toggle → becomes an ablation axis) ----
     use_agentic: bool = False

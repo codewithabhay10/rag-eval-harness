@@ -115,34 +115,51 @@ def main() -> None:
     if args.include_agentic:
         keys.append("agentic_512")
 
+    settings.results_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = settings.results_dir / "ablation.csv"
+
     # snapshot settings so we can restore them afterwards
     saved = (settings.retrieval_strategy, settings.use_reranker,
              settings.chunk_size, settings.use_agentic)
 
     results: dict[str, dict] = {}
+
+    def _save_partial():
+        rows = [_row(k, results[k]) for k in results]
+        if not rows:
+            return None
+        df = pd.DataFrame(rows)
+        df.to_csv(csv_path, index=False)
+        (settings.results_dir / "ablation.json").write_text(
+            json.dumps(rows, indent=2), encoding="utf-8"
+        )
+        (settings.results_dir / "ablation.md").write_text(
+            _markdown_tables(df, list(results)), encoding="utf-8"
+        )
+        return df
+
     try:
         for key in keys:
-            results[key] = run_config(key, args.limit)
+            # Per-config try/except + incremental save: a late failure (or a flaky
+            # config) never throws away the configs that already succeeded.
+            try:
+                results[key] = run_config(key, args.limit)
+            except Exception as e:
+                print(f"  CONFIG {key} FAILED: {e!r}")
+                import traceback
+                traceback.print_exc()
+            _save_partial()
     finally:
         (settings.retrieval_strategy, settings.use_reranker,
          settings.chunk_size, settings.use_agentic) = saved
 
-    rows = [_row(k, results[k]) for k in keys]
-    df = pd.DataFrame(rows)
-
-    settings.results_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = settings.results_dir / "ablation.csv"
-    df.to_csv(csv_path, index=False)
-    (settings.results_dir / "ablation.json").write_text(
-        json.dumps(rows, indent=2), encoding="utf-8"
-    )
-
-    md = _markdown_tables(df, keys)
-    (settings.results_dir / "ablation.md").write_text(md, encoding="utf-8")
+    df = _save_partial()
+    if df is None:
+        raise SystemExit("No ablation configs succeeded.")
 
     print("\n\n================  ABLATION SUMMARY  ================")
     print(df.to_string(index=False))
-    print(md)
+    print(_markdown_tables(df, list(results)))
 
     # winning config by (faithfulness + context_precision)
     scored = df.dropna(subset=["faithfulness", "context_precision"]).copy()

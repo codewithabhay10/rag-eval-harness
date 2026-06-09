@@ -54,9 +54,9 @@ def score_with_ragas(samples: list[dict]) -> tuple[dict[str, float], pd.DataFram
         LLMContextRecall(),
     ]
     run_config = RunConfig(
-        max_workers=settings.eval_max_workers,  # gentle on free-tier rate limits
-        timeout=240,
-        max_retries=5,
+        max_workers=settings.eval_max_workers,  # 1 for a serial local LLM; see config.py
+        timeout=settings.eval_timeout,
+        max_retries=settings.eval_max_retries,
     )
 
     result = evaluate(

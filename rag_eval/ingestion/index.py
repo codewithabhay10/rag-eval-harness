@@ -19,6 +19,8 @@ from functools import lru_cache
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
+    Filter,
+    FilterSelector,
     PointStruct,
     SparseVector,
     SparseVectorParams,
@@ -41,7 +43,12 @@ def get_client() -> QdrantClient:
 
 
 def recreate_collection(name: str) -> None:
-    """Drop and create the collection (named dense + sparse vectors) from scratch."""
+    """Drop and create the collection (named dense + sparse vectors) from scratch.
+
+    Qdrant LOCAL mode can retain points across delete_collection + create_collection
+    (the on-disk segment isn't dropped), which silently duplicates the corpus on a
+    rebuild. So after recreating we explicitly clear any points that survived.
+    """
     client = get_client()
     if client.collection_exists(name):
         client.delete_collection(name)
@@ -52,6 +59,8 @@ def recreate_collection(name: str) -> None:
         },
         sparse_vectors_config={SPARSE: SparseVectorParams()},
     )
+    if client.count(name).count:  # defensive: force-empty if local mode kept old points
+        client.delete(collection_name=name, points_selector=FilterSelector(filter=Filter()))
 
 
 def scroll_all_chunks(collection: str | None = None) -> list[dict]:
@@ -116,4 +125,13 @@ def index_chunks(chunks: list[Chunk], batch_size: int = 64) -> int:
         total += len(points)
         print(f"      indexed {total}/{len(chunks)} chunks", end="\r")
     print()
+
+    # Fail loudly if the index isn't exactly what we put in (e.g. stale duplicates):
+    # a corrupt index would silently corrupt every metric downstream.
+    stored = client.count(name).count
+    if stored != total:
+        raise RuntimeError(
+            f"Index sanity check failed for '{name}': upserted {total} but collection "
+            f"holds {stored}. Delete {settings.qdrant_path} and re-ingest."
+        )
     return total
