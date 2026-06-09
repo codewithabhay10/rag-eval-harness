@@ -1,5 +1,9 @@
-"""eval — synthetic test-set generation, RAGAS scoring, ablation runner (Phase 2-3).
+"""eval — synthetic test-set generation, RAGAS scoring, retrieval metrics, ablation.
 
-Not implemented yet: this package is built in Phase 2 (test set + RAGAS metrics) and
-Phase 3 (ablation runner). The directory exists now so the structure is stable.
+Phase 2 (done): build_testset.py + review_testset.py produce a labeled QA set;
+ragas_eval.py + retrieval_metrics.py + run.py score a config (RAGAS faithfulness /
+answer relevancy / context precision / context recall, plus Recall@k and MRR) and
+save a traceable results file.
+
+Phase 3 (todo): ablation.py sweeps configs and builds the comparison tables.
 """

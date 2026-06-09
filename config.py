@@ -71,8 +71,15 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-1.5-flash"
     google_api_key: Optional[str] = None
 
+    # ---- eval harness (Phase 2) ----
+    testset_size: int = 100  # target number of synthetic QA pairs
+    random_seed: int = 42  # makes test-set sampling reproducible
+    eval_max_workers: int = 4  # RAGAS concurrency (keep low for free-tier rate limits)
+
     # ---- agentic layer (Phase 4 toggle → becomes an ablation axis) ----
     use_agentic: bool = False
+    agentic_max_iterations: int = 2  # self-correction re-retrieval attempts
+    agentic_max_subquestions: int = 3  # cap on query decomposition
 
     @property
     def collection_name(self) -> str:
