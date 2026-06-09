@@ -37,3 +37,6 @@ pandas==2.2.3
 
 # --- demo ---
 streamlit==1.41.1
+
+# --- dev / tests ---
+pytest==8.3.4
